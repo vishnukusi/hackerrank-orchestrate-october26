@@ -216,7 +216,11 @@ class SqlSnapshotParser(BaseEvidenceParser):
 
         # Standard typed table (e.g. customer_profiles, search_documents, etc.)
         res_id = row_dict.get('resource_id')
-        user_id = row_dict.get('user_id') or row_dict.get('customer_reference')
+        user_id = (
+            row_dict.get('user_id')
+            or row_dict.get('customer_reference')
+            or row_dict.get('subject_reference')
+        )
         obs_time = (
             row_dict.get('updated_at')
             or row_dict.get('indexed_at')
@@ -236,7 +240,7 @@ class SqlSnapshotParser(BaseEvidenceParser):
             sys_id = 'account_service'
 
         identifiers = []
-        for field_k in ['email', 'phone', 'email_hash']:
+        for field_k in ['email', 'customer_email', 'owner_email', 'requester_email', 'phone', 'owner_phone', 'requester_phone', 'email_hash']:
             val = row_dict.get(field_k)
             if val:
                 identifiers.append(str(val).strip().lower())
@@ -291,10 +295,20 @@ class SqlSnapshotParser(BaseEvidenceParser):
         elif sys_id == 'backup_service':
             if status_val in ['BLOCKED', 'DISABLED']:
                 return 'BLOCKED'
-            return 'ACTIVE'
+            restore_allowed = str(inner.get('restore_allowed', '')).strip()
+            if restore_allowed == '0':
+                return 'BLOCKED'
+            elif restore_allowed == '1':
+                return 'ACTIVE'
+            return 'BLOCKED' if 'blocked' in str(inner).lower() else 'ACTIVE'
         elif sys_id == 'integration_service':
             if status_val in ['DISABLED', 'INACTIVE', 'STOPPED']:
                 return 'DISABLED'
-            return 'ACTIVE'
+            enabled_val = str(inner.get('enabled', '')).strip()
+            if enabled_val == '0':
+                return 'DISABLED'
+            elif enabled_val == '1':
+                return 'ACTIVE'
+            return 'DISABLED' if 'disabled' in str(inner).lower() else 'ACTIVE'
 
         return 'PRESENT'
