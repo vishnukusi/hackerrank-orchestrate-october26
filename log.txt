@@ -54,3 +54,178 @@ branch=jules-6771630512019846277-bb5e2aba
 repo_root=/app
 worktree=main
 parent_agent=none
+
+## 2026-10-26T12:45:00Z SESSION START
+
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+Repo Root: C:\Users\chaya\Downloads\hackerrank-agent-v2
+Branch: agent-v2
+Worktree: main
+Parent Agent: none
+Language: py
+Time Remaining: not configured
+
+## 2026-10-26T12:59:30Z Phase 0 Baseline Metric Reproduction and Absence Proof Audit
+
+User Prompt (verbatim, secrets redacted):
+You are the lead engineer building a reliable, evidence-grounded AI agent for the HackerRank challenge "Ghost Data Still Exists."
+Repository:
+https://github.com/vishnukusi/hackerrank-orchestrate-october26
+Context:
+Jules has already implemented a solution.
+The original HackerRank dataset must remain unchanged.
+The existing implementation has known correctness issues documented in "Ghost Data Still Exists: Repository Audit and Agent Design.pdf".
+We are building incrementally, not rewriting everything blindly.
+Work only on the dedicated agent-v2 branch. Never push to or modify main directly.
+CORE OBJECTIVE:
+Build a trustworthy agent that investigates each deletion request, reconstructs relevant data states at audit_at, applies deletion_rules.csv, and produces the exact required output with verifiable evidence.
+PHASE 0 — DO THIS FIRST, AND NOTHING BEYOND IT:
+Inspect the repository, branch, Git status, challenge instructions, sample inputs, sample outputs, evaluation code, and audit PDF.
+Implement a reproducible scorer against sample_output.csv.
+Measure status accuracy, exact-row accuracy, step precision/recall, and evidence-ID accuracy.
+Reproduce the existing baseline metrics for both main and Jules's branch. Do not claim success unless the actual results support it.
+Add a checksum-based test proving that files under dataset/ remain unchanged.
+Investigate how sample cases prove record absence, including cases where the resource ID is absent from a snapshot.
+Produce a concise Phase 0 report with commands executed, metrics, tests, changed files, and unresolved questions.
+RULES:
+Do not modify dataset files.
+Do not overwrite the committed output.csv, code.zip, or existing reports during Phase 0.
+Do not invent identifiers, evidence, timestamps, API calls, model usage, or test results.
+Do not add paid API dependencies.
+Do not start Phase 1 until Phase 0's exit criteria are satisfied.
+Do not merge branches or push changes unless explicitly approved.
+Keep changes small, reviewable, and reversible.
+After Phase 0, stop and report what changed, what passed, what failed, and what decision is needed next. Explain important engineering concepts as you work so I can learn to build agentic AI systems properly.
+
+Agent Response Summary:
+Completed Phase 0 discovery, metric reproduction, and verification without modifying dataset files or committed deliverables. Implemented a reproducible scorer in code/evaluation/scorer.py and reproduced exact baselines for origin/main (25/32 status accuracy, 4/32 exact rows, 0.33 precision, 0.55 recall) and agent-v2 (21/32 status accuracy, 6/32 exact rows, 0.78 precision, 0.75 recall). Added a SHA-256 and Git-based integrity test in code/evaluation/test_dataset_integrity.py covering all 103 dataset files (100% pass). Deep-dived into absence proof mechanisms in sample cases (case_01, 02, 04, 31), confirming how absent records are proven by covering snapshot omission while resource IDs are identified from system activity.
+
+Actions:
+* Extracted and analyzed repository audit PDF "Ghost Data Still Exists: Repository Audit and Agent Design.pdf"
+* Verified Git repository state and checked out dedicated branch agent-v2
+* Implemented reproducible evaluation scorer in code/evaluation/scorer.py with --baseline-compare
+* Added dataset SHA-256 checksum manifest and test suite in code/evaluation/test_dataset_integrity.py (7/7 tests passed)
+* Conducted deep-dive analysis on absence-by-omission cases (case_01, case_02, case_04, case_31)
+* Verified output.csv, code.zip, and dataset/ files remained 100% untouched
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=agent-v2
+repo_root=C:\Users\chaya\Downloads\hackerrank-agent-v2
+worktree=main
+parent_agent=none
+
+## 2026-10-26T13:43:45Z Phase 1 Unified Evidence Store and Parsers Implementation
+
+User Prompt (verbatim, secrets redacted):
+Phase 0 is approved. Proceed with Phase 1: Evidence Store and Unified Parsers.
+
+Decisions:
+
+1. Absence by omission:
+Yes, use a timestamp-valid covering snapshot as evidence of absence, but only when the snapshot is proven to cover the relevant store, collection, and replica scope. Never treat absence from a partial export as proof of deletion.
+
+2. Resource ID discovery:
+Prioritize exact, time-valid links from system_activity.csv, identity events, operational records, and handover evidence. Correlate records using explicit identifiers, workflow IDs, and timestamps. Do not infer ownership from temporal proximity alone.
+
+Do not use `account_{user_number}` as an automatic fallback. If a naming convention appears in the sample, investigate it, but do not generalize it without independent evidence.
+
+3. Phase 1 implementation:
+Build a normalized evidence store with typed observations and source provenance.
+
+Implement parsers for:
+- SQL snapshots, including primary and replica states
+- JSON evidence bundles and embedded timestamps
+- Structured and unstructured logs
+- Text handover documents
+- PDFs using text extraction
+- Screenshot evidence using OCR, with explicit extraction confidence and failure reporting
+
+Every observation must preserve:
+- Source evidence ID
+- Source file and precise locator
+- System and resource ID, when supported
+- Observed state and timestamp
+- Raw supporting excerpt or structured record
+- Snapshot scope and completeness information
+- Parser confidence or validation status
+
+Requirements:
+- Respect audit_at and all applicable embedded timestamps.
+- Never invent resource IDs or evidence IDs.
+- Parse multiple resources per system.
+- Preserve conflicting observations rather than silently overwriting them.
+- Report files and records that could not be parsed.
+- Write unit tests for each evidence format.
+- Add tests for absence by omission, incomplete snapshots, replica drift, and future-dated evidence.
+- Keep dataset/ unchanged.
+- Preserve the existing output.csv and code.zip.
+- Keep all work on agent-v2.
+- Do not push or merge without approval.
+
+At the end of Phase 1, provide a coverage report, exact tests run and results, changed files, unresolved evidence questions, and a clear explanation of how the evidence store will support the eventual AI investigation agent.
+
+Stop after Phase 1 and wait for approval before implementing identity resolution or policy decisions.
+
+Agent Response Summary:
+Implemented a modular, typed EvidenceStore and unified parsers across all 6 evidence formats (SQL snapshots, JSON bundles, logs, handover text, PDF text layers, and screenshot OCR) under code/evidence_store/. Successfully parsed all 94 evidence files in the manifest without failure, extracting 3,516 typed observations, 389 replica states, and 40 registered covering snapshots. Created comprehensive unit test suites in code/evaluation/test_evidence_parsers.py and code/evaluation/test_evidence_store.py covering absence by omission, incomplete snapshot scopes, replica drift, and timestamp cutoffs (17/17 tests passing across the repository). Preserved dataset integrity, output.csv, and code.zip without modification.
+
+Actions:
+* Created code/evidence_store/models.py defining Observation, CoveringSnapshot, and ParseReport dataclasses
+* Implemented SqlSnapshotParser, JsonBundleParser, LogEvidenceParser, TextHandoverParser, PdfDocumentParser, and ImageOcrParser
+* Built EvidenceStore in code/evidence_store/store.py supporting time-travel indexing, absence-by-omission covering snapshot lookup, and replica drift tracking
+* Extracted Windows native OCR for all 11 UI screenshots into code/ocr_cache.json with regex artifact normalization
+* Created unit test suites in code/evaluation/test_evidence_parsers.py (6/6 passed) and code/evaluation/test_evidence_store.py (4/4 passed)
+* Verified full suite execution: 17/17 unit tests passed in 2.767s
+* Confirmed dataset/, output.csv, and code.zip remained completely unmodified
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=agent-v2
+repo_root=C:\Users\chaya\Downloads\hackerrank-agent-v2
+worktree=main
+parent_agent=none
+
+## 2026-10-26T14:05:00Z Phase 1 Evidence Store Focused Verification Pass
+
+User Prompt (verbatim, secrets redacted):
+Phase 1 is provisionally approved. Before starting Phase 2, perform a focused verification pass on the Evidence Store implementation.
+
+Do not implement identity resolution yet. Do not modify dataset/, output.csv, code.zip, or main.
+
+1. Run the complete existing test suite and provide the actual terminal output.
+2. Inspect the parser and EvidenceStore code for silent parsing failures, skipped records, incorrect timestamps, and unsupported data shapes.
+3. Reconcile the manifest file count with the coverage report. Explain why the manifest contains 94 evidence rows while dataset/ contains 103 files.
+4. Verify that every registered covering snapshot has a defensible scope and timestamp, and that incomplete exports cannot prove absence.
+5. Verify that replica conflicts are preserved and cannot accidentally be classified as deletion.
+6. Review the mappings for support_storage_service and backup_restore_service. Preserve original system identity internally; map to allowed output system IDs only through explicit, tested rules.
+7. Inspect OCR normalization for false positives, especially when characters in user IDs or resource IDs are ambiguous.
+8. Add targeted tests only where a concrete gap is found. Do not inflate test counts with trivial assertions.
+9. Re-run all tests and the dataset checksum test.
+
+Report actual results, files changed, remaining risks, and any limitations. Do not claim 100% semantic coverage solely because every file opened successfully.
+
+Stop after this review. Do not proceed to Phase 2 until I approve the findings.
+
+Agent Response Summary:
+Completed a comprehensive verification pass of the Phase 1 Evidence Store. Reconciled the 94 manifest evidence rows against the 103 files in dataset/ (94 evidence objects + 9 top-level challenge metadata CSV files). Identified and fixed three concrete parser gaps: (1) storage service mapping in JSON bundles, preserving raw_system while mapping inner record target systems and extracting recorded_at timestamps, (2) operational lookup result state mapping (NOT_FOUND -> ABSENT, FOUND -> PRESENT), and (3) OCR normalization for space-separated user IDs (e.g. 'user 17' in evidence_42), marketing resource prefixes, and domain typos ('@gmaii.com' -> '@gmail.com'). Verified replica conflict preservation in evidence_54 and covering snapshot scope defenses. Added targeted unit tests in test_evidence_parsers.py and verified that all 19 unit tests pass and all 103 dataset files remain 100% byte-for-byte identical.
+
+Actions:
+* Added raw_system: Optional[str] to Observation dataclass in code/evidence_store/models.py to strictly preserve unmapped source system identities
+* Enhanced code/evidence_store/parsers/base.py with canonical mappings for storage/audit services (support_storage_service, backup_restore_service, etc.) and marketing_ prefix
+* Enhanced code/evidence_store/parsers/json_parser.py to prioritize inner record system over collection container, extract recorded_at/observed_at timestamps, and map operational results
+* Enhanced code/evidence_store/parsers/image_parser.py with conservative OCR normalizations for multi-digit user IDs and domain typos, mapping system per resource prefix
+* Updated code/evidence_store/parsers/sql_parser.py, log_parser.py, txt_parser.py, and pdf_parser.py to record raw_system
+* Added targeted unit tests in code/evaluation/test_evidence_parsers.py: test_support_and_backup_storage_service_mapping and test_image_ocr_normalization_and_user_spacing
+* Re-ran full test suite: 19/19 tests passed (1.653s), and re-verified 103/103 dataset file checksums
+
+Context:
+tool=Antigravity
+model=Gemini 3.8 Flash (High)
+branch=agent-v2
+repo_root=C:\Users\chaya\Downloads\hackerrank-agent-v2
+worktree=main
+parent_agent=none
