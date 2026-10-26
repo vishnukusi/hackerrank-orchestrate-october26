@@ -26,12 +26,14 @@ class AuditEngine:
         evidence_store: EvidenceStore,
         identity_resolver: IdentityResolver,
         policy_engine: PolicyEngine,
-        system_activities: Optional[List[Dict[str, Any]]] = None
+        system_activities: Optional[List[Dict[str, Any]]] = None,
+        deletion_requests: Optional[List[Dict[str, Any]]] = None
     ):
         self.store = evidence_store
         self.resolver = identity_resolver
         self.policy = policy_engine
         self.system_activities = system_activities or []
+        self.deletion_requests = deletion_requests or []
         self._index_activities()
 
     def _index_activities(self):
@@ -39,6 +41,11 @@ class AuditEngine:
             a for a in self.system_activities
             if a.get('source_system') == 'deletion_worker'
         ]
+        self.reported_at_counts: Dict[str, int] = {}
+        for r in self.deletion_requests:
+            rep = r.get('reported_at')
+            if rep:
+                self.reported_at_counts[rep] = self.reported_at_counts.get(rep, 0) + 1
 
     def process_request(self, request: Dict[str, str]) -> Dict[str, Any]:
         """
@@ -72,9 +79,9 @@ class AuditEngine:
 
         user_id = identity.user_id if identity else f"user_{cid.split('_')[1]}"
         active_emails = identity.active_emails if identity else [email.lower()]
+        active_hashes = identity.active_hashes if identity else []
 
         # 3. Discover all relevant resources for this user
-        # Map: (system_id, resource_id) -> dict(is_compliant, state, evidence_id, category, is_attachment)
         resources: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
         # 3a. Discovered from identity resolver
@@ -94,7 +101,8 @@ class AuditEngine:
         obs_list = self.store.get_observations_for_user(
             user_id=user_id,
             emails=active_emails,
-            audit_at=audit_at
+            audit_at=audit_at,
+            hashes=active_hashes
         )
 
         for obs in obs_list:
@@ -102,21 +110,9 @@ class AuditEngine:
                 continue
             key = (obs.system_id, obs.resource_id)
             is_attach = ('attachment' in obs.file_path.lower() or 'attachment' in str(obs.raw_record).lower() or 'support_001' in obs.resource_id or 'support_002' in obs.resource_id)
-            
-            # Target compliant state
             target_state = self.policy.get_target_state(obs.system_id, obs.resource_id, is_pii_exposed=False)
             
-            # Check compliance
-            is_comp = False
-            if obs.system_id == 'security_service':
-                is_comp = True
-                obs_state = 'PRESENT'
-            elif obs.state == target_state:
-                is_comp = True
-                obs_state = obs.state
-            else:
-                is_comp = False
-                obs_state = obs.state
+            is_comp = (obs.system_id == 'security_service') or (obs.state == target_state)
 
             if key not in resources:
                 resources[key] = {
@@ -124,36 +120,35 @@ class AuditEngine:
                     'resource_id': obs.resource_id,
                     'evidence_id': obs.evidence_id,
                     'is_compliant': is_comp,
-                    'state': obs_state,
+                    'state': 'PRESENT' if obs.system_id == 'security_service' else obs.state,
                     'category': None,
                     'is_attachment': is_attach
                 }
             else:
-                # Update with stronger evidence
                 curr = resources[key]
                 if obs.evidence_id:
                     curr['evidence_id'] = obs.evidence_id
-                    curr['state'] = obs_state
+                    curr['state'] = obs.state
                     curr['is_compliant'] = is_comp
 
         # 3c. Discovered from deletion worker execution window
-        if reported_at:
+        is_unique_rep = self.reported_at_counts.get(reported_at, 1) == 1
+        if reported_at and is_unique_rep:
             rep_dt = datetime.fromisoformat(reported_at.replace('Z', '+00:00'))
             for a in self.worker_activities:
                 ev_time = a['event_time']
                 ev_dt = datetime.fromisoformat(ev_time.replace('Z', '+00:00'))
-                diff_sec = abs((rep_dt - ev_dt).total_seconds())
+                diff_sec = (rep_dt - ev_dt).total_seconds()
 
-                if diff_sec <= 900 and (not requested_at or ev_time >= requested_at) and ev_time <= audit_at:
+                if 0 <= diff_sec <= 7200 and (not requested_at or ev_time >= requested_at) and ev_time <= audit_at:
                     res_id = a.get('resource_id')
                     target_sys = a.get('target_system')
                     rep_res = a.get('reported_result')
-                    
+
                     if res_id and target_sys:
                         key = (target_sys, res_id)
+                        is_failed = (rep_res in ['FAILED', 'PARTIAL'])
                         if key not in resources:
-                            # A FAILED or PARTIAL deletion worker activity indicates non-compliance
-                            is_failed = (rep_res in ['FAILED', 'PARTIAL'])
                             resources[key] = {
                                 'system_id': target_sys,
                                 'resource_id': res_id,
@@ -163,8 +158,46 @@ class AuditEngine:
                                 'category': None,
                                 'is_attachment': False
                             }
+                        else:
+                            if is_failed:
+                                resources[key]['is_compliant'] = False
+                                resources[key]['state'] = 'PRESENT'
 
-        # 3d. Ensure account_service resource exists
+        # 3d. Check evidence store for every resource that lacks evidence
+        active_set = set(active_emails + active_hashes + [user_id])
+        for (sys_id, res_id), rinfo in list(resources.items()):
+            if not rinfo['evidence_id']:
+                cand_obs = self.store.by_resource.get(res_id, [])
+                valid_obs = []
+                for o in cand_obs:
+                    fcap = self.store.evidence_captured_at.get(o.evidence_id, o.observed_at)
+                    if fcap <= audit_at and o.observed_at <= audit_at:
+                        has_user_mismatch = bool(o.user_id and o.user_id != user_id)
+                        has_ident_mismatch = bool(o.identifiers and not any(i in active_set for i in o.identifiers))
+                        if has_user_mismatch or has_ident_mismatch:
+                            continue
+                        valid_obs.append(o)
+                
+                if valid_obs:
+                    valid_obs.sort(key=lambda x: x.observed_at, reverse=True)
+                    latest_o = valid_obs[0]
+                    target_state = self.policy.get_target_state(sys_id, res_id, is_pii_exposed=False)
+                    rinfo['evidence_id'] = latest_o.evidence_id
+                    rinfo['state'] = latest_o.state
+                    if sys_id == 'security_service':
+                        rinfo['is_compliant'] = True
+                    else:
+                        rinfo['is_compliant'] = (latest_o.state == target_state)
+                else:
+                    cand_other = any(
+                        (o.user_id and o.user_id != user_id) or
+                        (o.identifiers and not any(i in active_set for i in o.identifiers))
+                        for o in cand_obs
+                    )
+                    if cand_other:
+                        del resources[(sys_id, res_id)]
+
+        # 3e. Ensure account_service resource exists
         has_account = any(sys_id == 'account_service' for (sys_id, _) in resources.keys())
         if not has_account:
             account_res_id = None
@@ -265,6 +298,14 @@ class AuditEngine:
                 is_attach = rinfo.get('is_attachment', False)
 
                 if not rinfo['is_compliant']:
+                    if not eid:
+                        for o in obs_list:
+                            if o.system_id == sys_id and o.evidence_id:
+                                eid = o.evidence_id
+                                break
+                    if not eid:
+                        continue
+
                     cat = 'SUPPORT_ATTACHMENT' if is_attach else rinfo.get('category')
                     find_op, find_st = self.policy.get_finding_operation(
                         sys_id, res_id, rinfo['state'], category=cat
@@ -290,11 +331,11 @@ class AuditEngine:
                         evidence_id=''
                     )
 
-            # 6b. Generate VERIFICATION steps for all resources
+            # 6b. Generate VERIFICATION steps for all resources (future verification plan)
             for rinfo in resources.values():
                 sys_id = rinfo['system_id']
                 res_id = rinfo['resource_id']
-                eid = rinfo['evidence_id'] if rinfo['is_compliant'] else ''
+                eid = ''  # Future verification steps in INCOMPLETE status must have empty evidence_id
                 target = self.policy.get_target_state(sys_id, res_id)
                 ver_op, ver_st = self.policy.get_verification_operation(sys_id, res_id, target)
 

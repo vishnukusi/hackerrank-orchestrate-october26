@@ -163,16 +163,7 @@ class JsonBundleParser(BaseEvidenceParser):
                 else:
                     unparsed_records.append({'locator': f"records[{r_idx}]", 'record': rec})
 
-            covering_snapshot = CoveringSnapshot(
-                evidence_id=eid,
-                file_path=rel_path,
-                captured_at=exported_at,
-                covered_systems=[sys_id],
-                is_full_store_snapshot=False,  # Single-system export
-                replica_coverage=['primary'],
-                total_records=len(observations),
-                records_by_system=records_by_system
-            )
+            covering_snapshot = None  # Event record file, not a full covering store snapshot
 
         report = ParseReport(
             evidence_id=eid,
@@ -212,10 +203,20 @@ class JsonBundleParser(BaseEvidenceParser):
                 user_id = m_u.group(1)
 
         identifiers = []
-        for k in ['email', 'phone', 'email_hash']:
+        for k in ['email', 'customer_email', 'owner_email', 'requester_email', 'phone', 'owner_phone', 'requester_phone', 'email_hash', 'query']:
             val = rec.get(k)
             if val:
                 identifiers.append(str(val).strip().lower())
+
+        for em in EMAIL_REGEX.findall(rec_str):
+            em_clean = em.strip().lower()
+            if em_clean not in identifiers:
+                identifiers.append(em_clean)
+
+        for h in re.findall(r'\b[a-fA-F0-9]{64}\b', rec_str):
+            h_clean = h.strip().lower()
+            if h_clean not in identifiers:
+                identifiers.append(h_clean)
 
         # Support recorded_at and observed_at in addition to captured_at/updated_at/created_at
         obs_time = (
@@ -280,6 +281,12 @@ class JsonBundleParser(BaseEvidenceParser):
         st = str(rec.get('account_status') or rec.get('status') or rec.get('state') or '').upper()
 
         if sys_id in ['account_service', 'search_service', 'export_service']:
+            if sys_id == 'export_service' and 'download_available' in rec:
+                return 'PRESENT' if rec.get('download_available') else 'ABSENT'
+            if rec.get('status_code') == 404 or (rec.get('profile') is None and 'status_code' in rec):
+                return 'ABSENT'
+            if rec.get('status_code') == 200:
+                return 'PRESENT'
             if st in ['DELETED', 'NOT_FOUND', 'ABSENT']:
                 return 'ABSENT'
             if rec.get('hit_count') == 0:
@@ -292,21 +299,37 @@ class JsonBundleParser(BaseEvidenceParser):
                 return 'REDACTED'
             return 'PRESENT'
         elif sys_id == 'support_platform':
+            if rec.get('requester_email') is None and rec.get('requester_phone') is None and rec.get('requester_name') is None:
+                if 'requester_email' in rec or 'requester_phone' in rec:
+                    return 'REDACTED'
             if st in ['REDACTED', 'DELETED', 'ABSENT']:
                 is_attach = rec.get('is_attachment', False) or ('attachment' in json.dumps(rec).lower())
                 return 'ABSENT' if is_attach else 'REDACTED'
             return 'PRESENT'
         elif sys_id == 'analytics_platform':
+            if rec.get('email') is None and rec.get('phone') is None and rec.get('email_hash') is None and rec.get('customer_reference') is None:
+                if 'email' in rec or 'customer_reference' in rec:
+                    return 'ANONYMIZED'
             if st in ['ANONYMIZED', 'ANONYMOUS']:
                 return 'ANONYMIZED'
             return 'PRESENT'
         elif sys_id == 'security_service':
             return 'PRESENT'
         elif sys_id == 'backup_service':
+            if 'restore_allowed' in rec:
+                ra = rec.get('restore_allowed')
+                if ra is False or str(ra).lower() == 'false' or ra == 0 or str(ra) == '0':
+                    return 'BLOCKED'
+                return 'ACTIVE'
             if st in ['BLOCKED', 'DISABLED']:
                 return 'BLOCKED'
             return 'ACTIVE'
         elif sys_id == 'integration_service':
+            if 'enabled' in rec:
+                en = rec.get('enabled')
+                if en is False or str(en).lower() == 'false' or en == 0 or str(en) == '0':
+                    return 'DISABLED'
+                return 'ACTIVE'
             if st in ['DISABLED', 'INACTIVE', 'STOPPED']:
                 return 'DISABLED'
             return 'ACTIVE'

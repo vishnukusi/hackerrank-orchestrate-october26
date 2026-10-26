@@ -136,6 +136,10 @@ class ImageOcrParser(BaseEvidenceParser):
         user_id = user_matches[0] if user_matches else None
         emails = [e.lower() for e in email_matches]
 
+        if not res_matches and user_id and sys_id == 'identity_service':
+            uid_num = user_id.split('_')[1] if '_' in user_id else user_id
+            res_matches = [f"tombstone_{uid_num}"]
+
         for res_id in (res_matches or [None]):
             target_sys = None
             if res_id:

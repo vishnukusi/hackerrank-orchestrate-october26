@@ -206,6 +206,9 @@ def print_metrics(metrics, title="EVALUATION METRICS"):
     print("=" * 70)
 
 def run_predictions_from_module(module_obj):
+    if hasattr(module_obj, 'run_pipeline'):
+        return module_obj.run_pipeline(SAMPLE_REQUESTS_PATH, None, DATASET_DIR, verify=False)
+
     with open(SAMPLE_REQUESTS_PATH, 'r', encoding='utf-8') as f:
         sample_reqs = list(csv.DictReader(f))
     with open(os.path.join(DATASET_DIR, 'user_identities.csv'), 'r', encoding='utf-8') as f:

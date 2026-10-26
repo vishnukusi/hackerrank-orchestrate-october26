@@ -80,5 +80,42 @@ class TestDeletionAuditRegression(unittest.TestCase):
         self.assertLess(bk_idx, del_idx)
         self.assertLess(del_idx, anon_idx)
 
+    def test_trace_id_log_grouping(self):
+        import tempfile
+        from code.evidence_store.parsers.log_parser import LogEvidenceParser
+        raw_log = (
+            "2026-09-17T08:00:00Z INFO [trace_id=tr-test-01] lookup_started: lookup_key=test@example.com store=search_index\n"
+            "2026-09-17T08:00:01Z INFO [trace_id=tr-test-01] lookup_completed: status=404 rows=0\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as f:
+            f.write(raw_log)
+            tmp_path = f.name
+        try:
+            parser = LogEvidenceParser()
+            manifest_entry = {"file_id": "evidence_test", "file_path": "test.log", "captured_at": "2026-09-17T08:00:01Z"}
+            obs, _, _ = parser.parse(tmp_path, manifest_entry)
+            self.assertTrue(any("test@example.com" in o.identifiers and o.state == "ABSENT" for o in obs))
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def test_historical_email_hash_resolution(self):
+        from code.identity.resolver import IdentityResolver
+        resolver = IdentityResolver(self.dataset_dir)
+        identity_12 = resolver.resolve_identity("minjun.kim@gmail.com", "2026-09-20T00:00:00Z")
+        self.assertIsNotNone(identity_12)
+        self.assertIn("44a65154bfd8e408852578fbd76813d094d1944f255ac1769ee81ba90492f10e", identity_12.active_hashes)
+
+    def test_event_manifest_not_covering_snapshot(self):
+        from code.evidence_store.store import EvidenceStore
+        store = EvidenceStore(self.dataset_dir)
+        store.load_all_evidence()
+        # Verify single-record JSON files are not registered as covering snapshots
+        e13_snaps = [s for s in store.covering_snapshots if s.evidence_id == "evidence_13"]
+        self.assertEqual(len(e13_snaps), 0)
+        e36_snaps = [s for s in store.covering_snapshots if s.evidence_id == "evidence_36"]
+        self.assertEqual(len(e36_snaps), 0)
+
+
 if __name__ == '__main__':
     unittest.main()

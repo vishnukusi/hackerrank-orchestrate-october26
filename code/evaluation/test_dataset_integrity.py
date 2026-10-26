@@ -56,6 +56,8 @@ class TestDatasetIntegrity(unittest.TestCase):
 
     def test_git_dataset_clean(self):
         """Verifies that git working tree reports no modifications in dataset/."""
+        if not os.path.exists(os.path.join(REPO_ROOT, '.git')):
+            self.skipTest("Not running inside repository root with .git; skipping git status test")
         try:
             res = subprocess.run(
                 ['git', 'status', '--porcelain', 'dataset/'],
@@ -65,8 +67,8 @@ class TestDatasetIntegrity(unittest.TestCase):
                 check=True
             )
             self.assertEqual(res.stdout.strip(), "", f"Git detected uncommitted changes in dataset/: {res.stdout}")
-        except FileNotFoundError:
-            self.skipTest("git command not found; skipping git status test")
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            self.skipTest("git command not found or not a git repository; skipping git status test")
 
 if __name__ == '__main__':
     unittest.main()

@@ -121,6 +121,20 @@ class IdentityResolver:
 
         active_emails = sorted(list(active_emails_set))
 
+        # Reconstruct active email hashes
+        hash_audits = [a for a in user_audits if a.get('field_name') == 'email_hash']
+        active_hashes_set: Set[str] = set()
+        base_hash = base_rec.get('email_hash', '').strip().lower()
+        if base_hash:
+            active_hashes_set.add(base_hash)
+        for a in hash_audits:
+            if a['event_time'] <= audit_at:
+                if a.get('old_value'):
+                    active_hashes_set.add(a['old_value'].strip().lower())
+                if a.get('new_value'):
+                    active_hashes_set.add(a['new_value'].strip().lower())
+        active_hashes = sorted(list(active_hashes_set))
+
         resolved = ResolvedIdentity(
             user_id=user_id,
             name=base_rec.get('name', ''),
@@ -130,6 +144,7 @@ class IdentityResolver:
             phone=base_rec.get('phone', ''),
             email_hash=base_rec.get('email_hash', ''),
             audit_at=audit_at,
+            active_hashes=active_hashes,
             email_changes=[a for a in email_audits if a['event_time'] <= audit_at]
         )
 

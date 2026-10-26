@@ -42,6 +42,7 @@ class EvidenceStore:
         self.by_identifier: Dict[str, List[Observation]] = {}
         self.by_system: Dict[str, List[Observation]] = {}
         self.by_evidence_id: Dict[str, List[Observation]] = {}
+        self.evidence_captured_at: Dict[str, str] = {}
 
     def load_all_evidence(self) -> Dict[str, Any]:
         """
@@ -57,10 +58,12 @@ class EvidenceStore:
         self.observations.clear()
         self.covering_snapshots.clear()
         self.parse_reports.clear()
+        self.evidence_captured_at.clear()
 
         for entry in manifest_rows:
             fpath = entry['file_path']
             abs_path = os.path.join(self.dataset_dir, fpath)
+            self.evidence_captured_at[entry['file_id']] = entry.get('captured_at', '')
 
             parser = next((p for p in self.parsers if p.can_parse(fpath)), None)
             if not parser:
@@ -110,7 +113,8 @@ class EvidenceStore:
         self,
         user_id: Optional[str],
         emails: List[str],
-        audit_at: str
+        audit_at: str,
+        hashes: Optional[List[str]] = None
     ) -> List[Observation]:
         """
         Retrieves all observations relevant to a user that were observed at or before audit_at.
@@ -128,8 +132,15 @@ class EvidenceStore:
             if em_clean in self.by_identifier:
                 candidate_obs.extend(self.by_identifier[em_clean])
 
+        if hashes:
+            for h in hashes:
+                h_clean = h.lower().strip()
+                if h_clean in self.by_identifier:
+                    candidate_obs.extend(self.by_identifier[h_clean])
+
         for obs in candidate_obs:
-            if obs.observed_at <= audit_at:
+            file_cap_at = self.evidence_captured_at.get(obs.evidence_id, obs.observed_at)
+            if file_cap_at <= audit_at and obs.observed_at <= audit_at:
                 key = (obs.evidence_id, obs.system_id, obs.resource_id or obs.locator)
                 if key not in seen_keys:
                     seen_keys.add(key)

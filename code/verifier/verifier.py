@@ -279,6 +279,16 @@ class AuditVerifier:
                     severity="ERROR",
                     message="INCOMPLETE status must contain VERIFICATION steps"
                 ))
+            # Every future verification step in INCOMPLETE must have empty evidence_id
+            for s in steps:
+                if s.get('phase') == 'VERIFICATION' and s.get('evidence_id'):
+                    findings.append(VerificationFinding(
+                        case_id=cid,
+                        check_name="incomplete_verification_no_evidence",
+                        severity="ERROR",
+                        message=f"Step {s.get('step_no')} in INCOMPLETE status is a future verification step and must have empty evidence_id, got '{s.get('evidence_id')}'",
+                        step_no=s.get('step_no')
+                    ))
 
         return findings
 

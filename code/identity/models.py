@@ -29,5 +29,6 @@ class ResolvedIdentity:
     phone: str
     email_hash: str
     audit_at: str
+    active_hashes: List[str] = field(default_factory=list)
     email_changes: List[Dict[str, Any]] = field(default_factory=list)
     linked_resources: Dict[str, LinkedResource] = field(default_factory=dict)
