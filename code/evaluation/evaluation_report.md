@@ -16,11 +16,12 @@ The full evaluation pipeline was executed across all 518 deletion requests (`cas
 - **Output Schema:** `case_id,deletion_status,steps_json`
 - **Output Integrity:** 100% (518 data rows + 1 header row, exactly matching expected case ID order)
 - **Status Distribution:**
-  - `INCOMPLETE`: 351 cases (67.76%)
-  - `COMPLETE`: 157 cases (30.31%)
+  - `INCOMPLETE`: 339 cases (65.44%)
+  - `COMPLETE`: 169 cases (32.63%)
   - `NOT_APPLICABLE`: 10 cases (1.93%)
 - **Independent Verifier Quality Gates:** **PASSED (518 / 518 passed, 0 errors, 0 warnings)**
 - **Official Validator (`code/evaluation/main.py`):** **SUCCESS: All 518 rows passed all structural, schema, ordering, and evidence checks!**
+- **Evidence Semantic Grounding:** **1,071 / 1,071 citations verified against evidence store observations (0 semantic errors)**
 - **Determinism:** Bit-for-bit identical output confirmed across successive full-dataset runs (SHA-256 verified).
 
 ---
@@ -35,16 +36,16 @@ The engine was evaluated against the 32 golden sample cases in `dataset/sample_o
 | :--- | :--- | :--- | :--- |
 | **Status Accuracy** | 25 / 32 | **32 / 32** | **+7 cases (+21.88%)** |
 | **Status Accuracy %** | 78.12% | **100.00%** | **+21.88%** |
-| **Exact-Row Accuracy** | 4 / 32 (12.50%) | **6 / 32 (18.75%)** | **+2 cases (+6.25%)** |
-| **Step Precision (No Ev ID)** | 0.3313 (33.13%) | **0.7337 (73.37%)** | **+40.24%** |
-| **Step Recall (No Ev ID)** | 0.5544 (55.44%) | **0.7565 (75.65%)** | **+20.21%** |
-| **Step F1 Score (No Ev ID)** | 0.4147 | **0.7449** | **+0.3302** |
-| **Step Matches (Strict Ev ID)**| 90 steps | **146 steps** | **+56 matched steps** |
-| **Strict Precision (With Ev ID)**| 0.2786 (27.86%) | **0.7337 (73.37%)** | **+45.51%** |
-| **Strict Recall (With Ev ID)** | 0.4663 (46.63%) | **0.7565 (75.65%)** | **+29.02%** |
-| **Strict F1 Score (With Ev ID)**| 0.3488 | **0.7449** | **+0.3961** |
-| **Evidence Citations Evaluated**| 99 citations | **76 citations** | *-23 spurious citations* |
-| **Evidence ID Accuracy** | 31 / 99 (31.31%) | **61 / 76 (80.26%)** | **+48.95%** |
+| **Exact-Row Accuracy** | 4 / 32 (12.50%) | **7 / 32 (21.88%)** | **+3 cases (+9.38%)** |
+| **Step Precision (No Ev ID)** | 0.3313 (33.13%) | **0.8547 (85.47%)** | **+52.34%** |
+| **Step Recall (No Ev ID)** | 0.5544 (55.44%) | **0.7927 (79.27%)** | **+23.83%** |
+| **Step F1 Score (No Ev ID)** | 0.4147 | **0.8226** | **+0.4079** |
+| **Step Matches (Strict Ev ID)**| 90 steps | **149 steps** | **+59 matched steps** |
+| **Strict Precision (With Ev ID)**| 0.2786 (27.86%) | **0.8324 (83.24%)** | **+55.38%** |
+| **Strict Recall (With Ev ID)** | 0.4663 (46.63%) | **0.7720 (77.20%)** | **+30.57%** |
+| **Strict F1 Score (With Ev ID)**| 0.3488 | **0.8011** | **+0.4523** |
+| **Evidence Citations Evaluated**| 99 citations | **67 citations** | *-32 spurious citations* |
+| **Evidence ID Accuracy** | 31 / 99 (31.31%) | **60 / 67 (89.55%)** | **+58.24%** |
 
 ---
 
@@ -75,16 +76,16 @@ The engine was evaluated against the 32 golden sample cases in `dataset/sample_o
 
 ## 4. Test Suite and Regression Results
 
-The repository test suite consists of 40 unit and regression tests across 8 test modules:
+The repository test suite consists of 44 unit and regression tests across 8 test modules:
 
 1. `code/evaluation/test_audit_engine.py`: Tests request processing, status derivation, step synthesis, and non-deletion detection (4/4 passed).
-2. `code/evaluation/test_audit_verifier.py`: Tests independent quality gates, schema enforcement, temporal cutoff verification, and covering snapshot scope rules (5/5 passed).
+2. `code/evaluation/test_audit_verifier.py`: Tests independent quality gates, schema enforcement, temporal cutoff verification, covering snapshot scope rules, and semantic evidence support checks (7/7 passed).
 3. `code/evaluation/test_dataset_integrity.py`: Verifies byte-for-byte SHA-256 integrity baseline of all 103 dataset files (2/2 passed).
 4. `code/evaluation/test_evidence_parsers.py`: Tests parsing across all 6 evidence families: SQL, JSON, logs, text handovers, PDFs, and OCR screenshots (8/8 passed).
 5. `code/evaluation/test_evidence_store.py`: Tests evidence indexing, absence-by-omission covering snapshot proofs, and replica conflict detection (4/4 passed).
 6. `code/evaluation/test_identity_resolution.py`: Tests identity resolution, historical email rewinding, and active hash tracking (5/5 passed).
 7. `code/evaluation/test_policy_engine.py`: Tests rule mapping across all 15 rules in `deletion_rules.csv` and state transitions (4/4 passed).
-8. `code/evaluation/test_regression.py`: Verifies bug fixes discovered during autonomous audit iterations (8/8 passed).
+8. `code/evaluation/test_regression.py`: Verifies bug fixes discovered during autonomous audit iterations, including worker activity time window correlation, reported_result disambiguation, and audit evidence precedence over historical worker failures (10/10 passed).
 
 ---
 

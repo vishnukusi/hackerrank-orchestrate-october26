@@ -121,6 +121,75 @@ class TestAuditVerifier(unittest.TestCase):
         findings = self.verifier.verify_case(req, output)
         self.assertTrue(any(f.check_name == "not_applicable_empty_steps" for f in findings))
 
+    def test_reject_contradictory_evidence_finding(self):
+        """Verifier must reject citing an evidence file as a FINDING of presence if evidence showed ABSENT."""
+        req = {
+            'case_id': 'case_999',
+            'audit_at': '2026-10-01T12:00:00Z',
+            'email': 'noor-khalil@proton.me'
+        }
+        # In evidence_03, account_9335 was observed as ABSENT. Citing it as FINDING must fail.
+        output = {
+            'case_id': 'case_999',
+            'deletion_status': 'INCOMPLETE',
+            'steps_json': json.dumps([
+                {
+                    'step_no': 1,
+                    'phase': 'FINDING',
+                    'system_id': 'account_service',
+                    'resource_id': 'account_9335',
+                    'operation': 'REPORT_REMAINING_RECORD',
+                    'state': 'PRESENT',
+                    'evidence_id': 'evidence_03'
+                },
+                {
+                    'step_no': 2,
+                    'phase': 'REMEDIATION',
+                    'system_id': 'account_service',
+                    'resource_id': 'account_9335',
+                    'operation': 'DELETE_RECORD',
+                    'state': 'ABSENT',
+                    'evidence_id': ''
+                },
+                {
+                    'step_no': 3,
+                    'phase': 'VERIFICATION',
+                    'system_id': 'account_service',
+                    'resource_id': 'account_9335',
+                    'operation': 'VERIFY_RECORD_ABSENT',
+                    'state': 'ABSENT',
+                    'evidence_id': ''
+                }
+            ])
+        }
+        findings = self.verifier.verify_case(req, output)
+        self.assertTrue(any(f.check_name == "evidence_semantic_support" for f in findings))
+
+    def test_reject_unrelated_evidence_citation(self):
+        """Verifier must reject citing evidence that has no observation of resource and does not cover system."""
+        req = {
+            'case_id': 'case_999',
+            'audit_at': '2026-09-30T00:00:00Z',
+            'email': 'test@example.com'
+        }
+        # evidence_01 is a log file that doesn't cover search_service for an unrelated resource
+        output = {
+            'case_id': 'case_999',
+            'deletion_status': 'COMPLETE',
+            'steps_json': json.dumps([{
+                'step_no': 1,
+                'phase': 'VERIFICATION',
+                'system_id': 'analytics_platform',
+                'resource_id': 'analytics_completely_fake_999',
+                'operation': 'VERIFY_RECORD_ANONYMIZED',
+                'state': 'ANONYMIZED',
+                'evidence_id': 'evidence_01'
+            }])
+        }
+        findings = self.verifier.verify_case(req, output)
+        self.assertTrue(any(f.check_name == "evidence_semantic_support" for f in findings))
+
 
 if __name__ == '__main__':
     unittest.main()
+

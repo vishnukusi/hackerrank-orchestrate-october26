@@ -117,5 +117,46 @@ class TestDeletionAuditRegression(unittest.TestCase):
         self.assertEqual(len(e36_snaps), 0)
 
 
+    def test_worker_activity_correlation_window_and_reported_result(self):
+        """Worker activities in 2h window must correlate correctly using reported_status match."""
+        from code.evidence_store.store import EvidenceStore
+        from code.identity.resolver import IdentityResolver
+        from code.policy.engine import PolicyEngine
+        from code.audit_engine.engine import AuditEngine
+        store = EvidenceStore(self.dataset_dir)
+        store.load_all_evidence()
+        resolver = IdentityResolver(self.dataset_dir)
+        policy = PolicyEngine(os.path.join(self.dataset_dir, 'deletion_rules.csv'))
+        with open(os.path.join(self.dataset_dir, 'sample_deletion_requests.csv'), encoding='utf-8') as f:
+            reqs = list(csv.DictReader(f))
+        engine = AuditEngine(store, resolver, policy, self.system_activities, reqs)
+        r31 = next(r for r in reqs if r['case_id'] == 'case_31')
+        r32 = next(r for r in reqs if r['case_id'] == 'case_32')
+        res31 = engine.process_request(r31)
+        res32 = engine.process_request(r32)
+        self.assertIn('account_4857', res31['steps_json'])
+        self.assertIn('account_8858', res32['steps_json'])
+
+    def test_audit_evidence_overrides_prior_worker_failure(self):
+        """Audit observation of ABSENT must take precedence over prior worker FAILED submission."""
+        from code.evidence_store.store import EvidenceStore
+        from code.identity.resolver import IdentityResolver
+        from code.policy.engine import PolicyEngine
+        from code.audit_engine.engine import AuditEngine
+        store = EvidenceStore(self.dataset_dir)
+        store.load_all_evidence()
+        resolver = IdentityResolver(self.dataset_dir)
+        policy = PolicyEngine(os.path.join(self.dataset_dir, 'deletion_rules.csv'))
+        with open(os.path.join(self.dataset_dir, 'sample_deletion_requests.csv'), encoding='utf-8') as f:
+            reqs = list(csv.DictReader(f))
+        engine = AuditEngine(store, resolver, policy, self.system_activities, reqs)
+        r13 = next(r for r in reqs if r['case_id'] == 'case_13')
+        res13 = engine.process_request(r13)
+        steps13 = json.loads(res13['steps_json'])
+        finding_accounts = [s for s in steps13 if s['phase'] == 'FINDING' and s['system_id'] == 'account_service']
+        self.assertEqual(len(finding_accounts), 0, "Account verified ABSENT in audit evidence must not be a FINDING")
+
+
 if __name__ == '__main__':
     unittest.main()
+

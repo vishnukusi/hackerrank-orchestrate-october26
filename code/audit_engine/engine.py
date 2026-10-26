@@ -133,6 +133,7 @@ class AuditEngine:
 
         # 3c. Discovered from deletion worker execution window
         is_unique_rep = self.reported_at_counts.get(reported_at, 1) == 1
+        active_set = set(active_emails + active_hashes + [user_id])
         if reported_at and is_unique_rep:
             rep_dt = datetime.fromisoformat(reported_at.replace('Z', '+00:00'))
             for a in self.worker_activities:
@@ -149,6 +150,14 @@ class AuditEngine:
                         key = (target_sys, res_id)
                         is_failed = (rep_res in ['FAILED', 'PARTIAL'])
                         if key not in resources:
+                            cand_obs = self.store.by_resource.get(res_id, [])
+                            if cand_obs:
+                                has_match = any(
+                                    (o.user_id == user_id) or any(i in active_set for i in o.identifiers)
+                                    for o in cand_obs
+                                )
+                                if not has_match:
+                                    continue
                             resources[key] = {
                                 'system_id': target_sys,
                                 'resource_id': res_id,
@@ -159,12 +168,11 @@ class AuditEngine:
                                 'is_attachment': False
                             }
                         else:
-                            if is_failed:
+                            if is_failed and not resources[key].get('evidence_id'):
                                 resources[key]['is_compliant'] = False
                                 resources[key]['state'] = 'PRESENT'
 
         # 3d. Check evidence store for every resource that lacks evidence
-        active_set = set(active_emails + active_hashes + [user_id])
         for (sys_id, res_id), rinfo in list(resources.items()):
             if not rinfo['evidence_id']:
                 cand_obs = self.store.by_resource.get(res_id, [])
@@ -216,12 +224,39 @@ class AuditEngine:
             # Check deletion worker window around reported_at
             if not account_res_id and reported_at:
                 rep_dt = datetime.fromisoformat(reported_at.replace('Z', '+00:00'))
+                rep_status = request.get('reported_status', '')
+                expected_results = []
+                if rep_status == 'COMPLETE':
+                    expected_results = ['SUCCESS']
+                elif rep_status == 'PARTIALLY_COMPLETE':
+                    expected_results = ['PARTIAL']
+                elif rep_status in ('FAILED', 'NOT_STARTED'):
+                    expected_results = ['FAILED']
+
+                candidates = []
                 for a in self.worker_activities:
                     if a.get('target_system') == 'account_service':
                         ev_dt = datetime.fromisoformat(a['event_time'].replace('Z', '+00:00'))
-                        if abs((rep_dt - ev_dt).total_seconds()) <= 900:
-                            account_res_id = a.get('resource_id')
-                            break
+                        diff_sec = (rep_dt - ev_dt).total_seconds()
+                        if 0 <= diff_sec <= 7200:
+                            cand_res = a.get('resource_id')
+                            if cand_res:
+                                cand_obs = self.store.by_resource.get(cand_res, [])
+                                has_other = any(
+                                    (o.user_id and o.user_id != user_id) or
+                                    (o.identifiers and not any(i in active_set for i in o.identifiers))
+                                    for o in cand_obs
+                                )
+                                if not has_other:
+                                    candidates.append((a, cand_res))
+
+                if len(candidates) > 1 and expected_results:
+                    matching = [c for c in candidates if c[0].get('reported_result') in expected_results]
+                    if matching:
+                        candidates = matching
+
+                if candidates:
+                    account_res_id = candidates[0][1]
 
             # Fallback to user number matching convention
             if not account_res_id:
@@ -336,7 +371,9 @@ class AuditEngine:
                 sys_id = rinfo['system_id']
                 res_id = rinfo['resource_id']
                 eid = ''  # Future verification steps in INCOMPLETE status must have empty evidence_id
-                target = self.policy.get_target_state(sys_id, res_id)
+                is_attach = rinfo.get('is_attachment', False)
+                cat = 'SUPPORT_ATTACHMENT' if is_attach else rinfo.get('category')
+                target = self.policy.get_target_state(sys_id, res_id, category=cat)
                 ver_op, ver_st = self.policy.get_verification_operation(sys_id, res_id, target)
 
                 builder.add_step(

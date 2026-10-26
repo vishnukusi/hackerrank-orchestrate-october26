@@ -205,6 +205,29 @@ class AuditVerifier:
                             message=f"Evidence {eid} captured at {captured_at} is after audit_at {audit_at}",
                             step_no=step_no
                         ))
+                    else:
+                        # Check semantic grounding of evidence citation
+                        obs_for_ev = [o for o in self.store.observations if o.evidence_id == eid]
+                        is_covering = any(snap.evidence_id == eid and sys_id in snap.covered_systems for snap in self.store.covering_snapshots)
+                        res_obs = [o for o in obs_for_ev if o.resource_id == res_id and o.observed_at <= audit_at]
+
+                        if not res_obs and not is_covering:
+                            findings.append(VerificationFinding(
+                                case_id=cid,
+                                check_name="evidence_semantic_support",
+                                severity="ERROR",
+                                message=f"Cited evidence '{eid}' in step {step_no} does not observe resource '{res_id}' and is not a covering snapshot for system '{sys_id}'",
+                                step_no=step_no
+                            ))
+                        elif res_obs:
+                            if phase == 'FINDING' and all(o.state == 'ABSENT' for o in res_obs):
+                                findings.append(VerificationFinding(
+                                    case_id=cid,
+                                    check_name="evidence_semantic_support",
+                                    severity="ERROR",
+                                    message=f"Step {step_no} cites evidence '{eid}' as a FINDING of presence/PII, but the evidence observed the resource as ABSENT",
+                                    step_no=step_no
+                                ))
 
             # Check proposed remediation steps don't claim past evidence
             if phase == 'REMEDIATION' and eid:

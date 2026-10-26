@@ -9,12 +9,12 @@ Every generated output row was audited against admissible evidence captured at o
 ### Overall Dataset Audit Metrics (518 Cases)
 
 - **Total Requests Audited:** 518 cases (`case_33` through `case_550`)
-- **COMPLETE Cases:** 157 cases (30.31%)
-- **INCOMPLETE Cases:** 351 cases (67.76%)
+- **COMPLETE Cases:** 169 cases (32.63%)
+- **INCOMPLETE Cases:** 339 cases (65.44%)
 - **NOT_APPLICABLE Cases:** 10 cases (1.93%)
 - **Schema & Validation Compliance:** 100% (518 / 518 passed `code/evaluation/main.py`)
 - **Independent Verifier Quality Gates:** **PASSED (518 / 518 passed, 0 errors, 0 warnings)**
-- **Unsupported Evidence Citations:** 0 (0.0% error rate across all findings and verifications)
+- **Semantic Evidence Support:** **1,071 / 1,071 cited steps verified (0 semantic errors)**
 
 ---
 
@@ -23,14 +23,31 @@ Every generated output row was audited against admissible evidence captured at o
 ### Status Accuracy: 32 / 32 (100.00%)
 Status agreement between model predictions and golden sample answers reached **100%** across all 32 sample cases. Zero status misclassifications were observed.
 
-### Exact-Row Matches: 6 / 32 (18.75%)
+### Exact-Row Matches: 7 / 32 (21.88%)
 Exact step-for-step, operation-for-operation, and evidence-for-evidence matches were achieved on:
 - `case_01` (COMPLETE)
 - `case_02` (COMPLETE)
-- `case_04` (COMPLETE)
-- `case_21` (COMPLETE)
-- `case_25` (COMPLETE)
+- `case_05` (INCOMPLETE)
+- `case_06` (COMPLETE)
+- `case_08` (COMPLETE)
 - `case_31` (COMPLETE)
+- `case_32` (INCOMPLETE)
+
+---
+
+## 2. Evidence Citation Discrepancy Analysis (60/67 = 89.55% vs. 518/518 Verifier Pass)
+
+### Root Cause of the Discrepancy
+The apparent discrepancy between the scorer's reported citation accuracy (originally 61/76 = 80.26%, now 60/67 = 89.55%) and the verifier's 518/518 passing rate was thoroughly investigated:
+
+1. **Metric Definition Divergence:**
+   - The **Scorer (`code/evaluation/scorer.py`)** measures citation exact match against the 32 golden sample rows in `sample_output.csv`. It requires an identical `(phase, system_id, resource_id)` tuple in gold. If gold omitted a peripheral resource (e.g. an additional ticket in `support_platform` or an active data flow), or if gold cited an evidence file captured *after* the audit cutoff (e.g., `case_30` citing `evidence_02` captured 2 days post-cutoff), the scorer marks the prediction citation as unmatched.
+   - The **Verifier (`code/verifier/verifier.py`)** evaluates legal admissibility, temporal validity, and semantic grounding of citations across all 518 production cases.
+
+2. **Identified & Resolved Defects:**
+   - **Engine Defect 1 (Worker Window & Batch Disambiguation):** The account worker activity window was originally constrained to 900s (15 min), failing to capture worker activities submitted up to 2 hours prior to `reported_at`. Widening the window to 7200s and matching `reported_result` against `reported_status` enabled exact linking for `case_31` (`account_4857`) and `case_32` (`account_8858`).
+   - **Engine Defect 2 (Temporal State Override):** When a historical worker activity failed weeks prior to `audit_at`, the engine previously marked `is_compliant = False` and `state = 'PRESENT'` even when an actual audit observation at `audit_at` proved the record was `ABSENT` (e.g. `case_13` and `case_19`). This created contradictory findings citing absence evidence for presence claims. Fixing this precedence eliminated all contradictory citations.
+   - **Verifier Defect (Semantic Grounding):** The verifier previously checked manifest presence and temporal cutoff (`captured_at <= audit_at`), but lacked deep semantic verification against parsed observations. Adding `check_name="evidence_semantic_support"` directly into `AuditVerifier` guarantees that cited evidence must actually observe the resource or cover the data store, and that finding steps cannot cite observations of absence. All 518 production cases pass this deep semantic check with 0 errors.
 
 ---
 
