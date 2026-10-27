@@ -215,10 +215,16 @@ class LogEvidenceParser(BaseEvidenceParser):
                 return 'REDACTED'
             return 'PRESENT'
         elif sys_id == 'support_platform':
-            if 'requester_email=null' in t or 'requester_phone=null' in t or 'redacted' in t:
-                return 'REDACTED'
             if 'attachment' in t and ('deleted' in t or 'absent' in t or 'purged' in t):
                 return 'ABSENT'
+            email_match = re.search(r'requester_email=([^ ]+)', t)
+            phone_match = re.search(r'requester_phone=([^ ]+)', t)
+            has_email = email_match and email_match.group(1).lower() not in ('null', 'none', '')
+            has_phone = phone_match and phone_match.group(1).lower() not in ('null', 'none', '')
+            if has_email or has_phone:
+                return 'PRESENT'
+            if ('requester_email=null' in t and 'requester_phone=null' in t) or 'redacted' in t:
+                return 'REDACTED'
             return 'PRESENT'
         elif sys_id == 'analytics_platform':
             if 'anonymized' in t or ('email=null' in t and 'phone=null' in t):

@@ -18,6 +18,7 @@ from code.audit_engine.step_builder import (
     step_sort_key,
 )
 from code.evidence_store.store import EvidenceStore
+from code.identity.resolver import IdentityResolver
 from code.verifier.models import VerificationFinding, VerificationResult
 
 VALID_STATUSES = {'COMPLETE', 'INCOMPLETE', 'NOT_APPLICABLE'}
@@ -35,14 +36,44 @@ VALID_SYSTEMS = {
     'identity_service'
 }
 
+ALLOWED_OPS = {
+    'FINDING': {
+        'REPORT_REMAINING_RECORD': 'PRESENT',
+        'REPORT_EXPOSED_PII': 'PRESENT',
+        'REPORT_ACTIVE_DATA_FLOW': 'ACTIVE',
+        'REPORT_RESTORE_RISK': 'ACTIVE'
+    },
+    'REMEDIATION': {
+        'DISABLE_DATA_FLOW': 'DISABLED',
+        'BLOCK_RESTORE': 'BLOCKED',
+        'DELETE_RECORD': 'ABSENT',
+        'REDACT_RECORD': 'REDACTED',
+        'ANONYMIZE_RECORD': 'ANONYMIZED'
+    },
+    'VERIFICATION': {
+        'VERIFY_RECORD_ABSENT': 'ABSENT',
+        'VERIFY_RECORD_PRESENT': 'PRESENT',
+        'VERIFY_RECORD_REDACTED': 'REDACTED',
+        'VERIFY_RECORD_ANONYMIZED': 'ANONYMIZED',
+        'VERIFY_DATA_FLOW_DISABLED': 'DISABLED',
+        'VERIFY_RESTORE_BLOCKED': 'BLOCKED'
+    }
+}
+
 
 class AuditVerifier:
-    def __init__(self, dataset_dir: str, evidence_store: Optional[EvidenceStore] = None):
+    def __init__(
+        self,
+        dataset_dir: str,
+        evidence_store: Optional[EvidenceStore] = None,
+        identity_resolver: Optional[IdentityResolver] = None
+    ):
         self.dataset_dir = dataset_dir
         self.store = evidence_store or EvidenceStore(dataset_dir)
         if not self.store.observations:
             self.store.load_all_evidence()
 
+        self.resolver = identity_resolver or IdentityResolver(dataset_dir)
         self.evidence_manifest: Dict[str, Dict[str, str]] = {}
         self._load_manifest()
 
@@ -67,6 +98,18 @@ class AuditVerifier:
         status = case_output.get('deletion_status')
         steps_raw = case_output.get('steps_json')
         audit_at = request['audit_at']
+        req_email = request.get('email', '')
+        req_user_id = request.get('user_id', '')
+
+        # Resolve identity for deep identity and alias validation
+        identity = self.resolver.resolve_identity(req_email or req_user_id, audit_at)
+        valid_idents: Set[str] = set()
+        if identity:
+            valid_idents.add(identity.user_id.lower())
+            valid_idents.update(e.lower() for e in identity.active_emails if e)
+            valid_idents.update(h.lower() for h in identity.active_hashes if h)
+            if identity.phone:
+                valid_idents.add(identity.phone.strip().lower())
 
         # 1. Basic Schema Validation
         if cid != out_cid:
@@ -183,6 +226,35 @@ class AuditVerifier:
                     step_no=step_no
                 ))
 
+            # Operation validation against ALLOWED_OPS
+            if phase in ALLOWED_OPS:
+                if op not in ALLOWED_OPS[phase]:
+                    findings.append(VerificationFinding(
+                        case_id=cid,
+                        check_name="valid_operation",
+                        severity="ERROR",
+                        message=f"Operation '{op}' not allowed in phase '{phase}' in step {step_no}",
+                        step_no=step_no
+                    ))
+                elif ALLOWED_OPS[phase][op] != state:
+                    findings.append(VerificationFinding(
+                        case_id=cid,
+                        check_name="operation_state_match",
+                        severity="ERROR",
+                        message=f"Operation '{op}' in phase '{phase}' expects state '{ALLOWED_OPS[phase][op]}', got '{state}' in step {step_no}",
+                        step_no=step_no
+                    ))
+
+            # Retention policy check
+            if sys_id == 'security_service' and op in ('DELETE_RECORD', 'VERIFY_RECORD_ABSENT'):
+                findings.append(VerificationFinding(
+                    case_id=cid,
+                    check_name="retention_policy_violation",
+                    severity="ERROR",
+                    message=f"Step {step_no} violates retention policy: security_service records must be retained (PRESENT), cannot be deleted",
+                    step_no=step_no
+                ))
+
             # 5. Evidence Citations
             if eid:
                 if eid not in self.evidence_manifest:
@@ -206,28 +278,91 @@ class AuditVerifier:
                             step_no=step_no
                         ))
                     else:
-                        # Check semantic grounding of evidence citation
                         obs_for_ev = [o for o in self.store.observations if o.evidence_id == eid]
                         is_covering = any(snap.evidence_id == eid and sys_id in snap.covered_systems for snap in self.store.covering_snapshots)
-                        res_obs = [o for o in obs_for_ev if o.resource_id == res_id and o.observed_at <= audit_at]
+                        matching_res_obs = [o for o in obs_for_ev if o.resource_id == res_id and o.system_id == sys_id and o.observed_at <= audit_at]
+                        wrong_sys_obs = [o for o in obs_for_ev if o.resource_id == res_id and o.system_id != sys_id and o.observed_at <= audit_at]
 
-                        if not res_obs and not is_covering:
+                        if not matching_res_obs and wrong_sys_obs:
+                            findings.append(VerificationFinding(
+                                case_id=cid,
+                                check_name="evidence_system_mismatch",
+                                severity="ERROR",
+                                message=f"Cited evidence '{eid}' contains resource '{res_id}' under system '{wrong_sys_obs[0].system_id}', not '{sys_id}' in step {step_no}",
+                                step_no=step_no
+                            ))
+                        elif not matching_res_obs and not is_covering:
                             findings.append(VerificationFinding(
                                 case_id=cid,
                                 check_name="evidence_semantic_support",
                                 severity="ERROR",
-                                message=f"Cited evidence '{eid}' in step {step_no} does not observe resource '{res_id}' and is not a covering snapshot for system '{sys_id}'",
+                                message=f"Cited evidence '{eid}' in step {step_no} does not observe resource '{res_id}' for system '{sys_id}' and is not a covering snapshot for system '{sys_id}'",
                                 step_no=step_no
                             ))
-                        elif res_obs:
-                            if phase == 'FINDING' and all(o.state == 'ABSENT' for o in res_obs):
-                                findings.append(VerificationFinding(
-                                    case_id=cid,
-                                    check_name="evidence_semantic_support",
-                                    severity="ERROR",
-                                    message=f"Step {step_no} cites evidence '{eid}' as a FINDING of presence/PII, but the evidence observed the resource as ABSENT",
-                                    step_no=step_no
-                                ))
+
+                        # User identity check
+                        if matching_res_obs and identity:
+                            for o in matching_res_obs:
+                                if o.user_id and o.user_id.lower() not in valid_idents:
+                                    findings.append(VerificationFinding(
+                                        case_id=cid,
+                                        check_name="evidence_user_mismatch",
+                                        severity="ERROR",
+                                        message=f"Step {step_no} cites evidence '{eid}' for resource '{res_id}' belonging to foreign user '{o.user_id}', not matching resolved user '{identity.user_id}'",
+                                        step_no=step_no
+                                    ))
+                                    break
+                                elif o.identifiers:
+                                    conflicting_users = [
+                                        i for i in o.identifiers
+                                        if (i.startswith('user_') or '@' in i) and i.lower() not in valid_idents
+                                    ]
+                                    if conflicting_users and not any(i.lower() in valid_idents for i in o.identifiers):
+                                        findings.append(VerificationFinding(
+                                            case_id=cid,
+                                            check_name="evidence_user_mismatch",
+                                            severity="ERROR",
+                                            message=f"Step {step_no} cites evidence '{eid}' for resource '{res_id}' containing foreign identifiers {conflicting_users} not matching user '{identity.user_id}'",
+                                            step_no=step_no
+                                        ))
+                                        break
+
+                        # State semantic check
+                        if matching_res_obs:
+                            if phase == 'FINDING':
+                                if op in ('REPORT_REMAINING_RECORD', 'REPORT_EXPOSED_PII') and all(o.state in ('ABSENT', 'REDACTED', 'ANONYMIZED') for o in matching_res_obs):
+                                    findings.append(VerificationFinding(
+                                        case_id=cid,
+                                        check_name="evidence_state_contradiction",
+                                        severity="ERROR",
+                                        message=f"Step {step_no} cites evidence '{eid}' as a FINDING of presence/PII, but the evidence observed the resource as {[o.state for o in matching_res_obs]}",
+                                        step_no=step_no
+                                    ))
+                                elif op in ('REPORT_ACTIVE_DATA_FLOW', 'REPORT_RESTORE_RISK') and all(o.state in ('DISABLED', 'BLOCKED', 'ABSENT') for o in matching_res_obs):
+                                    findings.append(VerificationFinding(
+                                        case_id=cid,
+                                        check_name="evidence_state_contradiction",
+                                        severity="ERROR",
+                                        message=f"Step {step_no} cites evidence '{eid}' as a FINDING of {op}, but the evidence observed the resource as {[o.state for o in matching_res_obs]}",
+                                        step_no=step_no
+                                    ))
+                            elif phase == 'VERIFICATION':
+                                if state == 'ABSENT' and any(o.state == 'PRESENT' for o in matching_res_obs):
+                                    findings.append(VerificationFinding(
+                                        case_id=cid,
+                                        check_name="evidence_state_contradiction",
+                                        severity="ERROR",
+                                        message=f"Step {step_no} cites evidence '{eid}' to verify record ABSENT, but the evidence observed the resource as PRESENT",
+                                        step_no=step_no
+                                    ))
+                                elif state == 'PRESENT' and all(o.state == 'ABSENT' for o in matching_res_obs):
+                                    findings.append(VerificationFinding(
+                                        case_id=cid,
+                                        check_name="evidence_state_contradiction",
+                                        severity="ERROR",
+                                        message=f"Step {step_no} cites evidence '{eid}' to verify record PRESENT, but the evidence observed the resource as ABSENT",
+                                        step_no=step_no
+                                    ))
 
             # Check proposed remediation steps don't claim past evidence
             if phase == 'REMEDIATION' and eid:
@@ -248,6 +383,14 @@ class AuditVerifier:
                         check_name="absence_covering_scope",
                         severity="ERROR",
                         message=f"Step {step_no} cites partial snapshot {eid} to prove absence; must be full store",
+                        step_no=step_no
+                    ))
+                if snap and sys_id not in snap.covered_systems:
+                    findings.append(VerificationFinding(
+                        case_id=cid,
+                        check_name="absence_system_not_covered",
+                        severity="ERROR",
+                        message=f"Step {step_no} cites snapshot {eid} to prove absence in {sys_id}, but {sys_id} is not covered by snapshot",
                         step_no=step_no
                     ))
 

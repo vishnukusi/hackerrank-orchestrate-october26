@@ -16,8 +16,8 @@ The full evaluation pipeline was executed across all 518 deletion requests (`cas
 - **Output Schema:** `case_id,deletion_status,steps_json`
 - **Output Integrity:** 100% (518 data rows + 1 header row, exactly matching expected case ID order)
 - **Status Distribution:**
-  - `INCOMPLETE`: 339 cases (65.44%)
-  - `COMPLETE`: 169 cases (32.63%)
+  - `INCOMPLETE`: 341 cases (65.83%)
+  - `COMPLETE`: 167 cases (32.24%)
   - `NOT_APPLICABLE`: 10 cases (1.93%)
 - **Independent Verifier Quality Gates:** **PASSED (518 / 518 passed, 0 errors, 0 warnings)**
 - **Official Validator (`code/evaluation/main.py`):** **SUCCESS: All 518 rows passed all structural, schema, ordering, and evidence checks!**
@@ -37,15 +37,15 @@ The engine was evaluated against the 32 golden sample cases in `dataset/sample_o
 | **Status Accuracy** | 25 / 32 | **32 / 32** | **+7 cases (+21.88%)** |
 | **Status Accuracy %** | 78.12% | **100.00%** | **+21.88%** |
 | **Exact-Row Accuracy** | 4 / 32 (12.50%) | **7 / 32 (21.88%)** | **+3 cases (+9.38%)** |
-| **Step Precision (No Ev ID)** | 0.3313 (33.13%) | **0.8547 (85.47%)** | **+52.34%** |
-| **Step Recall (No Ev ID)** | 0.5544 (55.44%) | **0.7927 (79.27%)** | **+23.83%** |
-| **Step F1 Score (No Ev ID)** | 0.4147 | **0.8226** | **+0.4079** |
-| **Step Matches (Strict Ev ID)**| 90 steps | **149 steps** | **+59 matched steps** |
-| **Strict Precision (With Ev ID)**| 0.2786 (27.86%) | **0.8324 (83.24%)** | **+55.38%** |
-| **Strict Recall (With Ev ID)** | 0.4663 (46.63%) | **0.7720 (77.20%)** | **+30.57%** |
-| **Strict F1 Score (With Ev ID)**| 0.3488 | **0.8011** | **+0.4523** |
-| **Evidence Citations Evaluated**| 99 citations | **67 citations** | *-32 spurious citations* |
-| **Evidence ID Accuracy** | 31 / 99 (31.31%) | **60 / 67 (89.55%)** | **+58.24%** |
+| **Step Precision (No Ev ID)** | 0.3313 (33.13%) | **0.8674 (86.74%)** | **+53.61%** |
+| **Step Recall (No Ev ID)** | 0.5544 (55.44%) | **0.8135 (81.35%)** | **+25.91%** |
+| **Step F1 Score (No Ev ID)** | 0.4147 | **0.8396** | **+0.4249** |
+| **Step Matches (Strict Ev ID)**| 90 steps | **152 steps** | **+62 matched steps** |
+| **Strict Precision (With Ev ID)**| 0.2786 (27.86%) | **0.8398 (83.98%)** | **+56.12%** |
+| **Strict Recall (With Ev ID)** | 0.4663 (46.63%) | **0.7876 (78.76%)** | **+32.13%** |
+| **Strict F1 Score (With Ev ID)**| 0.3488 | **0.8128** | **+0.4640** |
+| **Evidence Citations Evaluated**| 99 citations | **68 citations** | *-31 spurious citations* |
+| **Evidence ID Accuracy** | 31 / 99 (31.31%) | **61 / 68 (89.71%)** | **+58.40%** |
 
 ---
 
@@ -76,10 +76,10 @@ The engine was evaluated against the 32 golden sample cases in `dataset/sample_o
 
 ## 4. Test Suite and Regression Results
 
-The repository test suite consists of 44 unit and regression tests across 8 test modules:
+The repository test suite consists of 54 unit and regression tests across 8 test modules (100% passing, 0 skipped, 0 failed):
 
 1. `code/evaluation/test_audit_engine.py`: Tests request processing, status derivation, step synthesis, and non-deletion detection (4/4 passed).
-2. `code/evaluation/test_audit_verifier.py`: Tests independent quality gates, schema enforcement, temporal cutoff verification, covering snapshot scope rules, and semantic evidence support checks (7/7 passed).
+2. `code/evaluation/test_audit_verifier.py`: Tests independent quality gates, schema enforcement, temporal cutoff verification, foreign user isolation, covering snapshot scope rules, retention rules, operation-state pairing, and semantic evidence support checks (17/17 passed).
 3. `code/evaluation/test_dataset_integrity.py`: Verifies byte-for-byte SHA-256 integrity baseline of all 103 dataset files (2/2 passed).
 4. `code/evaluation/test_evidence_parsers.py`: Tests parsing across all 6 evidence families: SQL, JSON, logs, text handovers, PDFs, and OCR screenshots (8/8 passed).
 5. `code/evaluation/test_evidence_store.py`: Tests evidence indexing, absence-by-omission covering snapshot proofs, and replica conflict detection (4/4 passed).

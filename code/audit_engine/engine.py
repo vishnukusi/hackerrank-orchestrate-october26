@@ -256,7 +256,20 @@ class AuditEngine:
                         candidates = matching
 
                 if candidates:
-                    account_res_id = candidates[0][1]
+                    candidates.sort(key=lambda c: (c[0].get('event_time', ''), c[1]))
+                    batch_reqs = [
+                        r for r in self.deletion_requests
+                        if r.get('reported_at') == reported_at and r.get('reported_status') == rep_status
+                    ]
+                    if len(batch_reqs) > 1 and len(candidates) >= len(batch_reqs):
+                        cids = [r.get('case_id') for r in batch_reqs]
+                        if cid in cids:
+                            sub_idx = cids.index(cid)
+                            account_res_id = candidates[sub_idx][1]
+                        else:
+                            account_res_id = candidates[0][1]
+                    else:
+                        account_res_id = candidates[0][1]
 
             # Fallback to user number matching convention
             if not account_res_id:
